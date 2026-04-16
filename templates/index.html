@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EmployeeDB — Natural Language Query System</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header>
+    <div class="header-content">
+      <div class="logo">
+        <span class="logo-icon">🗄️</span>
+        <div>
+          <h1>EmployeeDB</h1>
+          <p>Natural Language Query Interface &nbsp;|&nbsp; MongoDB</p>
+        </div>
+      </div>
+      <div class="db-status" id="dbStatus">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ── Query panel ──────────────────────────────────────── -->
+    <section class="query-panel card">
+      <h2>Ask a Question</h2>
+      <p class="subtitle">Type a natural language query about employees, departments, salaries, and more.</p>
+
+      <div class="input-row">
+        <input
+          type="text"
+          id="queryInput"
+          placeholder='e.g. "List employees in Sales department"'
+          autocomplete="off"
+        />
+        <button id="submitBtn" onclick="runQuery()">
+          <span id="btnText">Search</span>
+          <span id="btnSpinner" class="spinner hidden"></span>
+        </button>
+      </div>
+
+      <!-- Example chips -->
+      <div class="chips">
+        <span class="chip-label">Try:</span>
+        <button class="chip" onclick="fillAndRun('Show all employees')">Show all employees</button>
+        <button class="chip" onclick="fillAndRun('List employees in Sales department')">Sales department</button>
+        <button class="chip" onclick="fillAndRun('Find employees who joined after 2022')">Joined after 2022</button>
+        <button class="chip" onclick="fillAndRun('Employees with Python skill')">Python skill</button>
+        <button class="chip" onclick="fillAndRun('Show employees working in Mumbai')">Mumbai office</button>
+        <button class="chip" onclick="fillAndRun('Find average salary')">Average salary</button>
+        <button class="chip" onclick="fillAndRun('Top 5 highest paid employees')">Top earners</button>
+        <button class="chip" onclick="fillAndRun('Employees on leave in March')">March leaves</button>
+        <button class="chip" onclick="fillAndRun('Count employees per department')">Dept breakdown</button>
+        <button class="chip" onclick="fillAndRun('Show employees in IT department')">IT team</button>
+        <button class="chip" onclick="fillAndRun('Employees enrolled in training')">Training</button>
+        <button class="chip" onclick="fillAndRun('Highest performance rating')">Top performers</button>
+      </div>
+    </section>
+
+    <!-- ── Results ───────────────────────────────────────────── -->
+    <section id="resultsSection" class="card hidden">
+      <div class="results-header">
+        <div>
+          <h2 id="resultsTitle">Results</h2>
+          <p id="resultsDesc" class="subtitle"></p>
+        </div>
+        <div class="results-meta">
+          <span class="badge" id="collectionBadge"></span>
+          <span class="count-badge" id="rowCount"></span>
+          <button class="btn-outline" onclick="toggleView()">Toggle JSON</button>
+        </div>
+      </div>
+
+      <!-- Query info box -->
+      <div class="query-info" id="queryInfo">
+        <span class="query-info-label">MQL:</span>
+        <code id="mqlCode"></code>
+      </div>
+
+      <!-- Table view -->
+      <div id="tableView">
+        <div class="table-wrapper">
+          <table id="resultsTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- JSON view -->
+      <div id="jsonView" class="hidden">
+        <pre id="jsonPre"></pre>
+      </div>
+    </section>
+
+    <!-- ── Error ─────────────────────────────────────────────── -->
+    <div id="errorBox" class="error-box hidden">
+      <span>⚠️</span> <span id="errorMsg"></span>
+    </div>
+
+    <!-- ── Collection stats panel ─────────────────────────────── -->
+    <section class="card stats-section">
+      <h2>Database Collections</h2>
+      <div id="statsGrid" class="stats-grid">
+        <p class="loading-text">Loading stats…</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>EmployeeDB &nbsp;|&nbsp; MongoDB 7.x &nbsp;|&nbsp; Flask + PyMongo &nbsp;|&nbsp; DBMS Project — April 2026</p>
+  </footer>
+
+  <script>
+    let jsonMode = false;
+    let lastData  = null;
+
+    // ── Load collection stats ─────────────────────────────────
+    async function loadStats() {
+      try {
+        const res = await fetch('/collections');
+        const data = await res.json();
+        const grid = document.getElementById('statsGrid');
+        grid.innerHTML = '';
+        const icons = {
+          employees:'👤', departments:'🏢', managers:'🧑‍💼',
+          projects:'📁', office_locations:'📍', employee_projects:'🔗',
+          skills:'💡', employee_skills:'🔗', training_programs:'📚',
+          employee_training:'🔗', leaves:'🏖️', attendance:'📋',
+          performance_reviews:'⭐', user_queries:'💬', generated_queries:'⚙️'
+        };
+        Object.entries(data.collections).sort().forEach(([name, count]) => {
+          const icon = icons[name] || '📄';
+          grid.innerHTML += `
+            <div class="stat-card">
+              <div class="stat-icon">${icon}</div>
+              <div class="stat-name">${name}</div>
+              <div class="stat-count">${count} docs</div>
+            </div>`;
+        });
+        document.getElementById('statusDot').classList.add('online');
+        document.getElementById('statusText').textContent = 'MongoDB Connected';
+      } catch(e) {
+        document.getElementById('statusDot').classList.add('offline');
+        document.getElementById('statusText').textContent = 'DB Offline';
+        document.getElementById('statsGrid').innerHTML =
+          '<p class="error-text">⚠️ Could not connect to MongoDB. Make sure mongod is running and the DB is populated.</p>';
+      }
+    }
+
+    // ── Run query ─────────────────────────────────────────────
+    async function runQuery() {
+      const input = document.getElementById('queryInput').value.trim();
+      if (!input) return;
+
+      setLoading(true);
+      hideError();
+      document.getElementById('resultsSection').classList.add('hidden');
+
+      try {
+        const res = await fetch('/query', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ query: input })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Query failed');
+        lastData = data;
+        renderResults(data);
+      } catch(e) {
+        showError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function fillAndRun(text) {
+      document.getElementById('queryInput').value = text;
+      runQuery();
+    }
+
+    // ── Render results ────────────────────────────────────────
+    function renderResults(data) {
+      const { description, collection, operation, result } = data;
+      document.getElementById('resultsTitle').textContent = description;
+      document.getElementById('resultsDesc').textContent = '';
+      document.getElementById('collectionBadge').textContent = collection;
+      document.getElementById('rowCount').textContent = `${result.length} record${result.length !== 1 ? 's' : ''}`;
+      document.getElementById('mqlCode').textContent = operation;
+      document.getElementById('jsonPre').textContent = JSON.stringify(result, null, 2);
+
+      if (result.length === 0) {
+        document.getElementById('tableHead').innerHTML = '';
+        document.getElementById('tableBody').innerHTML = '<tr><td colspan="99" class="no-data">No documents found.</td></tr>';
+      } else {
+        const keys = Object.keys(result[0]);
+        document.getElementById('tableHead').innerHTML =
+          '<tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
+        document.getElementById('tableBody').innerHTML =
+          result.map(row =>
+            '<tr>' + keys.map(k => `<td>${formatCell(row[k])}</td>`).join('') + '</tr>'
+          ).join('');
+      }
+
+      document.getElementById('resultsSection').classList.remove('hidden');
+      // Reset to table view
+      jsonMode = false;
+      document.getElementById('tableView').classList.remove('hidden');
+      document.getElementById('jsonView').classList.add('hidden');
+      document.getElementById('resultsSection').scrollIntoView({behavior:'smooth'});
+    }
+
+    function formatCell(val) {
+      if (val === null || val === undefined) return '<span class="null">null</span>';
+      if (typeof val === 'object') return `<code>${JSON.stringify(val)}</code>`;
+      return String(val);
+    }
+
+    function toggleView() {
+      jsonMode = !jsonMode;
+      document.getElementById('tableView').classList.toggle('hidden', jsonMode);
+      document.getElementById('jsonView').classList.toggle('hidden', !jsonMode);
+    }
+
+    // ── UI helpers ────────────────────────────────────────────
+    function setLoading(on) {
+      document.getElementById('submitBtn').disabled = on;
+      document.getElementById('btnText').textContent = on ? 'Searching…' : 'Search';
+      document.getElementById('btnSpinner').classList.toggle('hidden', !on);
+    }
+    function showError(msg) {
+      document.getElementById('errorMsg').textContent = msg;
+      document.getElementById('errorBox').classList.remove('hidden');
+    }
+    function hideError() {
+      document.getElementById('errorBox').classList.add('hidden');
+    }
+
+    // ── Enter key ────────────────────────────────────────────
+    document.getElementById('queryInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runQuery();
+    });
+
+    // ── Init ─────────────────────────────────────────────────
+    loadStats();
+  </script>
+</body>
+</html>
